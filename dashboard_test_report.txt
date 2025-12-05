@@ -1,0 +1,28 @@
+
+============================================================
+DASHBOARD FUNCTIONALITY TEST REPORT
+============================================================
+
+Test Execution Time: 2025-09-03T18:27:28.339434
+Test User: testuser_vi6trl
+
+SUMMARY:
+--------
+Total Tests: 13
+Passed: 11
+Failed: 0
+Errors: 2
+Pass Rate: 84.6%
+
+PERFORMANCE METRICS:
+-------------------
+user_registration: 2.204s (slow)
+user_login: 2.171s (slow)
+dashboard_load: 2.063s (slow)
+
+ERRORS:
+-------
+[ERROR] Balance Endpoint: Expecting value: line 1 column 1 (char 0)
+[ERROR] Recent Transactions Endpoint: Expecting value: line 1 column 1 (char 0)
+
+============================================================

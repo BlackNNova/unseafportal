@@ -1,0 +1,497 @@
+/* Professional Banking UI Styles */
+/* Inspired by Chase, Bank of America, Deutsche Bank */
+
+:root {
+  /* Primary Banking Colors */
+  --banking-blue: #0052CC;
+  --banking-blue-dark: #003D99;
+  --banking-blue-light: #E6F0FF;
+  --banking-blue-hover: #0747A6;
+  
+  /* Status Colors */
+  --success-green: #00875A;
+  --success-green-light: #E3FCEF;
+  --warning-orange: #FF8B00;
+  --warning-orange-light: #FFF4E5;
+  --error-red: #DE350B;
+  --error-red-light: #FFEBE6;
+  --pending-yellow: #FFC400;
+  --pending-yellow-light: #FFFAE6;
+  
+  /* Neutral Colors */
+  --neutral-gray: #F4F5F7;
+  --neutral-gray-dark: #DFE1E6;
+  --text-primary: #172B4D;
+  --text-secondary: #5E6C84;
+  --text-tertiary: #8993A4;
+  --border-color: #DFE1E6;
+  --shadow-color: rgba(9, 30, 66, 0.08);
+  
+  /* Typography */
+  --font-family: 'Inter', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  --font-size-xs: 12px;
+  --font-size-sm: 14px;
+  --font-size-base: 16px;
+  --font-size-lg: 18px;
+  --font-size-xl: 20px;
+  --font-size-2xl: 24px;
+  --font-size-3xl: 32px;
+  --font-size-4xl: 40px;
+  
+  /* Spacing */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-2xl: 48px;
+  
+  /* Border Radius */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(9, 30, 66, 0.08);
+  --shadow-md: 0 4px 6px rgba(9, 30, 66, 0.1);
+  --shadow-lg: 0 8px 16px rgba(9, 30, 66, 0.12);
+  --shadow-xl: 0 12px 24px rgba(9, 30, 66, 0.15);
+}
+
+/* Banking Card Styles */
+.banking-card {
+  background: white;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  transition: box-shadow 0.2s ease;
+}
+
+.banking-card:hover {
+  box-shadow: var(--shadow-lg);
+}
+
+.banking-card-header {
+  background: linear-gradient(135deg, var(--banking-blue) 0%, var(--banking-blue-dark) 100%);
+  color: white;
+  padding: var(--spacing-xl);
+}
+
+.banking-card-body {
+  padding: var(--spacing-xl);
+}
+
+/* Status Badges */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.status-badge-pending {
+  background: var(--warning-orange);
+  color: white;
+}
+
+.status-badge-processing {
+  background: var(--banking-blue);
+  color: white;
+}
+
+.status-badge-completed {
+  background: var(--success-green);
+  color: white;
+}
+
+.status-badge-failed {
+  background: var(--error-red);
+  color: white;
+}
+
+/* Amount Display */
+.amount-display {
+  text-align: center;
+  padding: var(--spacing-lg);
+}
+
+.amount-display-label {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-sm);
+}
+
+.amount-display-value {
+  font-size: var(--font-size-4xl);
+  font-weight: 700;
+  color: var(--banking-blue);
+  line-height: 1.2;
+}
+
+/* Progress Timeline */
+.timeline {
+  position: relative;
+  padding: var(--spacing-lg) 0;
+}
+
+.timeline-step {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
+  position: relative;
+  padding-left: var(--spacing-xl);
+}
+
+.timeline-step:last-child {
+  margin-bottom: 0;
+}
+
+.timeline-step::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 24px;
+  width: 2px;
+  height: calc(100% + var(--spacing-lg));
+  background: var(--border-color);
+}
+
+.timeline-step:last-child::before {
+  display: none;
+}
+
+.timeline-icon {
+  position: absolute;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--success-green);
+  border: 2px solid white;
+  box-shadow: 0 0 0 2px var(--success-green);
+}
+
+.timeline-icon.pending {
+  background: var(--border-color);
+  box-shadow: 0 0 0 2px var(--border-color);
+}
+
+.timeline-icon.active {
+  background: var(--banking-blue);
+  box-shadow: 0 0 0 2px var(--banking-blue);
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 2px var(--banking-blue);
+  }
+  50% {
+    box-shadow: 0 0 0 6px var(--banking-blue-light);
+  }
+}
+
+.timeline-content {
+  flex: 1;
+}
+
+.timeline-title {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.timeline-description {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.timeline-date {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  margin-top: var(--spacing-xs);
+}
+
+/* Info Grid */
+.info-grid {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: var(--spacing-md);
+  margin: var(--spacing-lg) 0;
+}
+
+.info-label {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.info-value {
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  font-weight: 400;
+}
+
+/* Highlight Box */
+.highlight-box {
+  background: var(--banking-blue-light);
+  border-left: 4px solid var(--banking-blue);
+  padding: var(--spacing-lg);
+  border-radius: var(--radius-md);
+  margin: var(--spacing-lg) 0;
+}
+
+.highlight-box-success {
+  background: var(--success-green-light);
+  border-left-color: var(--success-green);
+}
+
+.highlight-box-warning {
+  background: var(--warning-orange-light);
+  border-left-color: var(--warning-orange);
+}
+
+.highlight-box-error {
+  background: var(--error-red-light);
+  border-left-color: var(--error-red);
+}
+
+/* Method Selector Cards */
+.method-card {
+  background: white;
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.method-card:hover {
+  border-color: var(--banking-blue);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.method-card.selected {
+  border-color: var(--banking-blue);
+  background: var(--banking-blue-light);
+}
+
+.method-card-icon {
+  width: 48px;
+  height: 48px;
+  background: var(--banking-blue-light);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: var(--spacing-md);
+  color: var(--banking-blue);
+}
+
+.method-card.selected .method-card-icon {
+  background: var(--banking-blue);
+  color: white;
+}
+
+.method-card-title {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.method-card-description {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-sm);
+}
+
+.method-card-details {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+}
+
+/* Banking Button */
+.banking-button {
+  background: var(--banking-blue);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md) var(--spacing-xl);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.banking-button:hover {
+  background: var(--banking-blue-hover);
+  box-shadow: var(--shadow-md);
+}
+
+.banking-button:active {
+  transform: translateY(1px);
+}
+
+.banking-button:disabled {
+  background: var(--neutral-gray-dark);
+  color: var(--text-tertiary);
+  cursor: not-allowed;
+}
+
+.banking-button-secondary {
+  background: white;
+  color: var(--banking-blue);
+  border: 2px solid var(--banking-blue);
+}
+
+.banking-button-secondary:hover {
+  background: var(--banking-blue-light);
+}
+
+/* Form Styles */
+.banking-form-group {
+  margin-bottom: var(--spacing-lg);
+}
+
+.banking-form-label {
+  display: block;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--spacing-sm);
+}
+
+.banking-form-label.required::after {
+  content: ' *';
+  color: var(--error-red);
+}
+
+.banking-form-input {
+  width: 100%;
+  padding: var(--spacing-md);
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+  font-family: var(--font-family);
+  transition: border-color 0.2s ease;
+}
+
+.banking-form-input:focus {
+  outline: none;
+  border-color: var(--banking-blue);
+  box-shadow: 0 0 0 3px var(--banking-blue-light);
+}
+
+.banking-form-input.error {
+  border-color: var(--error-red);
+}
+
+.banking-form-error {
+  font-size: var(--font-size-xs);
+  color: var(--error-red);
+  margin-top: var(--spacing-xs);
+}
+
+.banking-form-help {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  margin-top: var(--spacing-xs);
+}
+
+/* Receipt Styles */
+.receipt-container {
+  max-width: 800px;
+  margin: 0 auto;
+  background: white;
+  box-shadow: var(--shadow-xl);
+  font-family: var(--font-family);
+}
+
+.receipt-header {
+  background: linear-gradient(135deg, var(--banking-blue) 0%, var(--banking-blue-dark) 100%);
+  color: white;
+  padding: var(--spacing-2xl);
+  text-align: center;
+}
+
+.receipt-body {
+  padding: var(--spacing-2xl);
+}
+
+.receipt-section {
+  margin-bottom: var(--spacing-xl);
+  padding-bottom: var(--spacing-lg);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.receipt-section:last-child {
+  border-bottom: none;
+}
+
+.receipt-section-title {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--spacing-md);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.receipt-footer {
+  background: var(--neutral-gray);
+  padding: var(--spacing-xl);
+  text-align: center;
+  border-top: 1px solid var(--border-color);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .info-grid {
+    grid-template-columns: 1fr;
+    gap: var(--spacing-sm);
+  }
+  
+  .amount-display-value {
+    font-size: var(--font-size-3xl);
+  }
+  
+  .banking-card-header,
+  .banking-card-body {
+    padding: var(--spacing-lg);
+  }
+  
+  .method-card {
+    padding: var(--spacing-md);
+  }
+}
+
+/* Print Styles */
+@media print {
+  body {
+    background: white;
+  }
+  
+  .receipt-container {
+    box-shadow: none;
+    margin: 0;
+  }
+  
+  .banking-button,
+  .no-print {
+    display: none !important;
+  }
+}

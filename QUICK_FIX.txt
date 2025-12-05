@@ -1,0 +1,44 @@
+═══════════════════════════════════════════════════════════════
+   QUICK 30-SECOND FIX FOR WITHDRAWAL ISSUE
+═══════════════════════════════════════════════════════════════
+
+Direct database connection blocked by Supabase security.
+You need to run the SQL manually (takes 30 seconds):
+
+STEP 1: Open this link in your browser
+────────────────────────────────────────────────────────────────
+https://supabase.com/dashboard/project/qghsyyyompjuxjtbqiuk/sql/new
+
+
+STEP 2: Copy the SQL
+────────────────────────────────────────────────────────────────
+Open file: FIX_WITHDRAWAL_DATABASE.sql
+Press: Ctrl+A (select all)
+Press: Ctrl+C (copy)
+
+
+STEP 3: Paste and Run
+────────────────────────────────────────────────────────────────
+In Supabase SQL Editor:
+  - Paste: Ctrl+V
+  - Click: "Run" button (bottom right)
+  - Wait: 2-3 seconds
+
+
+STEP 4: Test Withdrawal
+────────────────────────────────────────────────────────────────
+Go to: funding-unseaf.org
+  - Refresh page (Ctrl+Shift+R)
+  - Try withdrawal again
+  - Enter PIN
+  - Click "Confirm Transaction"
+  - ✅ Should work now!
+
+
+═══════════════════════════════════════════════════════════════
+WHY THIS IS NEEDED:
+  Your database is missing the "transaction_number" column in
+  the transactions table. Without it, withdrawals can't complete.
+  
+  This SQL adds that column + 3 other required database fixes.
+═══════════════════════════════════════════════════════════════

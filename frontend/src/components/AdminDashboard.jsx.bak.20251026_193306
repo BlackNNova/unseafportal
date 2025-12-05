@@ -1,0 +1,2200 @@
+import React, { useState, useEffect } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { 
+  Shield, 
+  Users, 
+  DollarSign, 
+  Activity, 
+  Search,
+  Plus,
+  Minus,
+  LogOut,
+  Settings,
+  UserCheck,
+  UserX,
+  FileText,
+  MessageSquare,
+  Eye,
+  Clock,
+  CheckCircle,
+  XCircle,
+  AlertCircle
+} from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { supabase } from '../utils/supabase';
+import AdminSupportTicketDetail from './AdminSupportTicketDetail';
+import KYCManagement from './KYCManagement';
+import { formatCurrency, formatBalance, formatTransactionAmount, formatAdminAmount } from '../utils/currencyFormatter';
+
+const AdminDashboard = () => {
+  console.log('🧪 TEST: AdminDashboard component loaded - v4.0-RLS-FIXED');
+  const [admin, setAdmin] = useState(null);
+  const [stats, setStats] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [kycRequests, setKycRequests] = useState([]);
+  const [supportTickets, setSupportTickets] = useState([]);
+  const [pendingAccounts, setPendingAccounts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [activeTab, setActiveTab] = useState('overview');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [userStatusFilter, setUserStatusFilter] = useState('all');
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [fundAmount, setFundAmount] = useState('');
+  const [fundAction, setFundAction] = useState('');
+  const [selectedTicket, setSelectedTicket] = useState(null);
+  const [grantConflicts, setGrantConflicts] = useState([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [financialStats, setFinancialStats] = useState({
+    total_transactions: 0,
+    total_transfers: 0,
+    total_withdrawals: 0,
+    transaction_volume: 0,
+    transfer_volume: 0,
+    withdrawal_volume: 0,
+    recent_transactions: [],
+    recent_transfers: [],
+    recent_withdrawals: []
+  });
+  const navigate = useNavigate();
+
+  // Debounced search effect - trigger when search term changes
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      console.log('🔍 SEARCH: Debounced search triggered for:', searchTerm, 'with filter:', userStatusFilter);
+      fetchUsers(userStatusFilter);
+    }, searchTerm.length > 0 ? 300 : 0); // No delay when clearing search
+    
+    return () => clearTimeout(timer);
+  }, [searchTerm, userStatusFilter]);
+
+  useEffect(() => {
+    const loadDashboard = async () => {
+      try {
+        // First, verify Supabase tables
+        console.log('🧪 TEST: Starting dashboard load...');
+        
+        // Import and run table verification
+        const { verifySupabaseTables } = await import('../utils/supabaseTest.js');
+        const tableResults = await verifySupabaseTables();
+        console.log('🧪 TEST: Table verification results:', tableResults);
+        
+        await fetchAdminData();
+        await fetchStats();
+        await fetchUsers();
+        // KYC requests now handled by KYCManagement component
+        // Support tickets functionality available in future versions
+        setSupportTickets([]);
+        await fetchPendingAccounts();
+        await fetchGrantConflicts();
+        
+        console.log('🧪 TEST: Dashboard load complete!');
+      } catch (error) {
+        console.error('🧪 TEST: Dashboard load error:', error);
+        setError('Failed to load dashboard: ' + error.message);
+        setLoading(false);
+      }
+    };
+    
+    loadDashboard();
+  }, []);
+
+  const fetchAdminData = async () => {
+    console.log('🧪 TEST: fetchAdminData - Starting...');
+    try {
+      // Get current session
+      console.log('🧪 TEST: fetchAdminData - Checking session...');
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session) {
+        console.log('🧪 TEST: fetchAdminData - No session, checking localStorage...');
+        // Try to get from localStorage as fallback
+        const adminData = localStorage.getItem('admin');
+        if (adminData) {
+          console.log('🧪 TEST: fetchAdminData - Found admin in localStorage');
+          setAdmin(JSON.parse(adminData));
+        } else {
+          console.log('🧪 TEST: fetchAdminData - No admin data found anywhere');
+        }
+        return;
+      }
+
+      console.log('🧪 TEST: fetchAdminData - Session found:', session.user.email);
+      // Get admin profile from database
+      const { data: adminProfile, error: profileError } = await supabase
+        .from('admins')
+        .select('*')
+        .eq('id', session.user.id)
+        .single();
+        
+      if (profileError) {
+        console.error('🧪 TEST: fetchAdminData - Profile error:', profileError);
+        throw new Error('Admin profile not found');
+      }
+      
+      console.log('🧪 TEST: fetchAdminData - Success:', adminProfile);
+      setAdmin(adminProfile);
+    } catch (err) {
+      console.error('🧪 TEST: fetchAdminData - ERROR:', err);
+      setError('Failed to fetch admin data');
+    }
+  };
+
+  const fetchStats = async () => {
+    console.log('🧪 TEST: fetchStats - Starting...');
+    try {
+      // Get user count
+      console.log('🧪 TEST: fetchStats - Counting total users...');
+      const { count: totalUsers, error: usersError } = await supabase
+        .from('users')
+        .select('*', { count: 'exact', head: true });
+      
+      // Get approved users count (account_status = 'approved' or 'active' for backward compatibility)
+      const { count: approvedUsers, error: approvedUsersError } = await supabase
+        .from('users')
+        .select('*', { count: 'exact', head: true })
+        .or('account_status.eq.approved,account_status.eq.active');
+      
+      // Get pending KYC count
+      const { count: pendingKyc, error: kycError } = await supabase
+        .from('users')
+        .select('*', { count: 'exact', head: true })
+        .eq('kyc_status', 'pending');
+      
+      // Calculate total balance (sum all user balances from user_grants)
+      const { data: balanceData, error: balanceError } = await supabase
+        .from('user_grants')
+        .select('current_balance');
+      
+      const totalBalance = balanceData?.reduce((sum, grant) => sum + (grant.current_balance || 0), 0) || 0;
+      
+      // Get financial statistics
+      await fetchFinancialStats();
+      
+      const statsObject = {
+        total_users: totalUsers || 0,
+        active_users: approvedUsers || 0, // 🔧 FIX: Use approvedUsers for accurate count
+        pending_kyc: pendingKyc || 0,
+        total_balance: totalBalance,
+        pending_accounts: 0, // Will be calculated in fetchPendingAccounts
+        recent_transactions: [] // Will be populated by fetchFinancialStats
+      };
+      
+      console.log('🧪 TEST: Stats object structure:', statsObject);
+      console.log('🧪 TEST: Property names:', Object.keys(statsObject));
+      
+      setStats(statsObject);
+      
+    } catch (err) {
+      console.error('Failed to fetch statistics:', err);
+      setError('Failed to fetch statistics');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchFinancialStats = async () => {
+    console.log('🧪 TEST: fetchFinancialStats - Starting...');
+    try {
+      // Fetch transactions data
+      const { data: transactionsData, error: transactionsError } = await supabase
+        .from('transactions')
+        .select(`
+          *,
+          users!inner(
+            first_name,
+            last_name,
+            email,
+            account_number
+          )
+        `)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      // Fetch transfers data
+      const { data: transfersData, error: transfersError } = await supabase
+        .from('transfers')
+        .select(`
+          *,
+          users!inner(
+            first_name,
+            last_name,
+            email,
+            account_number
+          )
+        `)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      // Fetch withdrawals data - SIMPLIFIED QUERY
+      const { data: withdrawalsData, error: withdrawalsError } = await supabase
+        .from('withdrawals')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(10);
+        
+      // Get user info separately
+      let withdrawalsWithUsers = [];
+      if (withdrawalsData && withdrawalsData.length > 0) {
+        const userIds = withdrawalsData.map(w => w.user_id);
+        const { data: usersData } = await supabase
+          .from('users')
+          .select('id, first_name, last_name, email, account_number')
+          .in('id', userIds);
+          
+        withdrawalsWithUsers = withdrawalsData.map(w => {
+          const user = usersData?.find(u => u.id === w.user_id);
+          return {
+            ...w,
+            users: user
+          };
+        });
+      }
+
+      console.log('🔍 DEBUG: Raw withdrawals query:', { withdrawalsData, withdrawalsError, count: withdrawalsData?.length });
+      console.log('🔍 DEBUG: Withdrawals with users:', { withdrawalsWithUsers, count: withdrawalsWithUsers?.length });
+
+      // Get transaction counts and volumes
+      const { count: totalTransactions } = await supabase
+        .from('transactions')
+        .select('*', { count: 'exact', head: true });
+
+      const { count: totalTransfers } = await supabase
+        .from('transfers')
+        .select('*', { count: 'exact', head: true });
+
+      const { count: totalWithdrawals } = await supabase
+        .from('withdrawals')
+        .select('*', { count: 'exact', head: true });
+
+      // Calculate volumes
+      const { data: allTransactions } = await supabase
+        .from('transactions')
+        .select('amount');
+
+      const { data: allTransfers } = await supabase
+        .from('transfers')
+        .select('amount');
+
+      const { data: allWithdrawals } = await supabase
+        .from('withdrawals')
+        .select('amount');
+
+      const transactionVolume = allTransactions?.reduce((sum, t) => sum + parseFloat(t.amount || 0), 0) || 0;
+      const transferVolume = allTransfers?.reduce((sum, t) => sum + parseFloat(t.amount || 0), 0) || 0;
+      const withdrawalVolume = allWithdrawals?.reduce((sum, w) => sum + parseFloat(w.amount || 0), 0) || 0;
+
+      // Format recent transactions for display
+      const formattedTransactions = (transactionsData || []).map(tx => ({
+        ...tx,
+        transaction_id: tx.transaction_id || `TRX${tx.id}`,
+        user_info: {
+          full_name: `${tx.users?.first_name || ''} ${tx.users?.last_name || ''}`.trim(),
+          email: tx.users?.email,
+          account_number: tx.users?.account_number
+        }
+      }));
+
+      const formattedTransfers = (transfersData || []).map(tr => ({
+        ...tr,
+        user_info: {
+          full_name: `${tr.users?.first_name || ''} ${tr.users?.last_name || ''}`.trim(),
+          email: tr.users?.email,
+          account_number: tr.users?.account_number
+        }
+      }));
+
+      // EMERGENCY BACKUP: Use raw withdrawal data if user join fails
+      const dataToUse = withdrawalsWithUsers.length > 0 ? withdrawalsWithUsers : (withdrawalsData || []);
+      
+      const formattedWithdrawals = dataToUse.map(wd => ({
+        ...wd,
+        user_info: {
+          full_name: `${wd.users?.first_name || ''} ${wd.users?.last_name || ''}`.trim() || 'Unknown User',
+          email: wd.users?.email || 'unknown@email.com',
+          account_number: wd.users?.account_number || 'N/A'
+        }
+      }));
+
+      const financialData = {
+        total_transactions: totalTransactions || 0,
+        total_transfers: totalTransfers || 0,
+        total_withdrawals: totalWithdrawals || 0,
+        transaction_volume: transactionVolume,
+        transfer_volume: transferVolume,
+        withdrawal_volume: withdrawalVolume,
+        recent_transactions: formattedTransactions,
+        recent_transfers: formattedTransfers,
+        recent_withdrawals: formattedWithdrawals
+      };
+
+      setFinancialStats(financialData);
+      console.log('🧪 TEST: Financial stats loaded:', financialData);
+      console.log('🔍 DEBUG: Recent withdrawals:', financialData.recent_withdrawals);
+      
+      // Update stats with recent transactions for the overview table
+      setStats(prevStats => ({
+        ...prevStats,
+        recent_transactions: formattedTransactions
+      }));
+      
+    } catch (err) {
+      console.error('Error fetching financial stats:', err);
+    }
+  };
+
+  const fetchUsers = async (status = null) => {
+    const filterStatus = status || userStatusFilter;
+    console.log('🧪 TEST: fetchUsers - Starting with status:', filterStatus, 'from:', status ? 'button click' : 'search/refresh');
+    console.log('🧪 TEST: fetchUsers - Search term:', searchTerm);
+    
+    // Update the filter state if a new status is provided (from button clicks)
+    if (status) {
+      console.log('🧪 TEST: fetchUsers - Updating filter state from', userStatusFilter, 'to', status);
+      setUserStatusFilter(status);
+    }
+    
+    // Set loading state
+    setUsersLoading(true);
+    
+    try {
+      // First fetch users
+      let query = supabase
+        .from('users')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      console.log('🧪 TEST: fetchUsers - Building query...');
+      
+      // Apply filters - fix the query combination logic
+      if (filterStatus !== 'all') {
+        // First apply status filter
+        if (filterStatus === 'approved') {
+          // Handle 'approved' filter to include both 'approved' and 'active' statuses
+          query = query.or('account_status.eq.approved,account_status.eq.active');
+        } else {
+          query = query.eq('account_status', filterStatus);
+        }
+      }
+      
+      // Then apply search filter if provided (will work with existing status filter)
+      if (searchTerm) {
+        // Use .ilike for case-insensitive search across multiple fields
+        query = query.or(`first_name.ilike.%${searchTerm}%,last_name.ilike.%${searchTerm}%,grant_number.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`);
+      }
+      
+      const { data: usersData, error: usersError } = await query;
+      
+      if (usersError) {
+        throw usersError;
+      }
+      
+      console.log('🧪 TEST: fetchUsers - Raw users count:', usersData?.length);
+      
+      // Fetch all grants separately
+      const { data: grantsData, error: grantsError } = await supabase
+        .from('user_grants')
+        .select('user_id, current_balance, total_grant_amount');
+      
+      if (grantsError) {
+        console.warn('🧪 TEST: fetchUsers - Grant fetch error:', grantsError);
+      }
+      
+      // Create a map of user_id to grant data
+      const grantsMap = {};
+      (grantsData || []).forEach(grant => {
+        grantsMap[grant.user_id] = grant;
+      });
+      
+      // Merge users with their grants
+      const usersWithGrants = (usersData || []).map(user => ({
+        ...user,
+        user_grants: grantsMap[user.id] ? [grantsMap[user.id]] : []
+      }));
+      
+      console.log('🧪 TEST: fetchUsers - Sample user with grant:', usersWithGrants?.[0]);
+      
+      // Import and use user helpers
+      const { normalizeUser, validateUserProperties } = await import('../utils/userHelpers.js');
+      
+      const issues = validateUserProperties(usersWithGrants || []);
+      if (issues.length > 0) {
+        console.warn('🧪 TEST: User property issues found:', issues);
+      }
+      
+      const normalizedUsers = usersWithGrants.map(normalizeUser);
+      console.log('🧪 TEST: fetchUsers - Normalized users count:', normalizedUsers.length);
+      
+      setUsers(normalizedUsers);
+    } catch (err) {
+      console.error('🧪 TEST: fetchUsers - ERROR:', err);
+      setError('Failed to fetch users');
+      setUsers([]); // Clear users on error
+    } finally {
+      // Always clear loading state
+      setUsersLoading(false);
+    }
+  };
+
+  // KYC management is now handled by the KYCManagement component
+
+  const fetchSupportTickets = async () => {
+    try {
+      // For now, using dummy data since support tickets table may not exist yet
+      // TODO: Create support_tickets table in Supabase and implement real queries
+      setSupportTickets([
+        {
+          id: 1,
+          user_id: 1,
+          full_name: 'Sample User',
+          subject: 'Account Verification Issue',
+          status: 'open',
+          priority: 'high',
+          category: 'account',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }
+      ]);
+    } catch (err) {
+      console.error('Error fetching support tickets:', err);
+      setSupportTickets([]);
+    }
+  };
+
+  const fetchPendingAccounts = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('account_status', 'pending')
+        .order('created_at', { ascending: false });
+      
+      if (error) {
+        throw error;
+      }
+      
+      setPendingAccounts(data || []);
+    } catch (err) {
+      console.error('Failed to fetch pending accounts:', err);
+      setPendingAccounts([]);
+    }
+  };
+
+  const fetchGrantConflicts = async () => {
+    try {
+      // Check for duplicate grant numbers
+      const { data, error } = await supabase
+        .from('users')
+        .select('grant_number')
+        .not('grant_number', 'is', null);
+      
+      if (error) {
+        throw error;
+      }
+      
+      // Find duplicates
+      const grantCounts = {};
+      data?.forEach(user => {
+        if (user.grant_number) {
+          grantCounts[user.grant_number] = (grantCounts[user.grant_number] || 0) + 1;
+        }
+      });
+      
+      const conflicts = Object.entries(grantCounts)
+        .filter(([grant, count]) => count > 1)
+        .map(([grant, count]) => ({ grant_number: grant, count }));
+      
+      setGrantConflicts(conflicts);
+    } catch (err) {
+      console.error('Error fetching grant conflicts:', err);
+      setGrantConflicts([]);
+    }
+  };
+
+  const handleAccountAction = async (userId, action) => {
+    try {
+      // 🔧 FIX: Use 'approved' instead of 'active' to match database constraints
+      const newStatus = action === 'approve' ? 'approved' : 'rejected';
+      
+      const { error } = await supabase
+        .from('users')
+        .update({ account_status: newStatus })
+        .eq('id', userId);
+      
+      if (error) {
+        throw error;
+      }
+      
+      alert(`Account ${action}d successfully`);
+      // ✅ FIX: Refresh all related data to ensure UI consistency
+      await Promise.all([
+        fetchPendingAccounts(),
+        fetchStats(),
+        fetchUsers(userStatusFilter) // Refresh with current filter
+      ]);
+    } catch (err) {
+      console.error(`Error ${action}ing account:`, err);
+      alert(`Account ${action} failed: ${err.message}`);
+    }
+  };
+
+  const handleBulkApproval = async (userIds) => {
+    if (userIds.length === 0) {
+      alert('No accounts selected for approval');
+      return;
+    }
+    
+    if (!confirm(`Are you sure you want to approve ${userIds.length} account(s)?`)) {
+      return;
+    }
+    
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({ account_status: 'approved' })
+        .in('id', userIds);
+      
+      if (error) {
+        throw error;
+      }
+      
+      alert(`${userIds.length} accounts approved successfully`);
+      fetchPendingAccounts();
+      fetchStats();
+      fetchUsers();
+    } catch (err) {
+      console.error('Bulk approval error:', err);
+      alert(`Bulk approval failed: ${err.message}`);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      localStorage.removeItem('admin');
+      navigate('/admin/login');
+    } catch (err) {
+      console.error('Logout error:', err);
+      navigate('/admin/login'); // Navigate anyway
+    }
+  };
+
+  const handleFundUser = async () => {
+    if (!selectedUser || !fundAmount) return;
+
+    try {
+      const amount = parseFloat(fundAmount);
+      // Get balance from user_grants
+      const currentBalance = selectedUser.user_grants?.[0]?.current_balance || 0;
+      const newBalance = fundAction === 'add' 
+        ? currentBalance + amount
+        : currentBalance - amount;
+      
+      if (newBalance < 0) {
+        alert('Insufficient balance for deduction');
+        return;
+      }
+      
+      // Update user balance in user_grants table
+      const { error: balanceError } = await supabase
+        .from('user_grants')
+        .update({ current_balance: newBalance })
+        .eq('user_id', selectedUser.id);
+      
+      if (balanceError) {
+        throw balanceError;
+      }
+      
+      // Create transaction record
+      const transactionId = `TRX${Date.now()}`;
+      const transactionType = fundAction === 'add' ? 'credit' : 'debit';
+      const description = `Admin ${fundAction === 'add' ? 'credit' : 'debit'} by ${admin?.full_name || 'Admin'}`;
+      
+      const { error: transactionError } = await supabase
+        .from('transactions')
+        .insert({
+          user_id: selectedUser.id,
+          transaction_id: transactionId,
+          type: transactionType,
+          amount: amount,
+          description: description,
+          status: 'completed',
+          reference: `ADMIN_${fundAction.toUpperCase()}_${Date.now()}`,
+          post_balance: newBalance
+        });
+      
+      if (transactionError) {
+        console.error('Transaction creation error:', transactionError);
+        // Don't fail the whole operation if transaction logging fails
+      }
+      
+      alert(`Funds ${fundAction === 'add' ? 'added' : 'deducted'} successfully`);
+      fetchUsers();
+      fetchStats();
+      fetchFinancialStats(); // Refresh transaction data
+      setSelectedUser(null);
+      setFundAmount('');
+      setFundAction('');
+    } catch (err) {
+      console.error('Fund operation error:', err);
+      alert(`Operation failed: ${err.message}`);
+    }
+  };
+
+  const toggleUserStatus = async (userId, field, currentValue) => {
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({ [field]: !currentValue })
+        .eq('id', userId);
+
+      if (error) {
+        throw error;
+      }
+      
+      fetchUsers();
+      fetchStats();
+    } catch (err) {
+      console.error('Toggle status error:', err);
+      alert(`Update failed: ${err.message}`);
+    }
+  };
+
+  const handleWithdrawalStatusUpdate = async (withdrawalId, newStatus) => {
+    try {
+      console.log('🔄 WITHDRAWAL STATUS UPDATE:', { withdrawalId, newStatus });
+      
+      // Confirm status change for final statuses
+      if (newStatus === 'completed' || newStatus === 'failed') {
+        const confirmMessage = `Are you sure you want to mark this withdrawal as ${newStatus}?`;
+        if (!confirm(confirmMessage)) {
+          return;
+        }
+      }
+
+      const updates = {
+        status: newStatus,
+        updated_at: new Date().toISOString()
+      };
+
+      // Add completed timestamp for completed withdrawals
+      if (newStatus === 'completed') {
+        updates.completed_at = new Date().toISOString();
+      }
+
+      const { error } = await supabase
+        .from('withdrawals')
+        .update(updates)
+        .eq('id', withdrawalId);
+
+      if (error) {
+        throw error;
+      }
+
+      // Log admin action for audit trail
+      try {
+        await supabase
+          .from('admin_actions')
+          .insert({
+            admin_id: admin?.id,
+            admin_email: admin?.email || 'unknown',
+            action_type: 'withdrawal_status_change',
+            target_id: withdrawalId,
+            target_type: 'withdrawal',
+            old_value: 'unknown', // We don't have the old status in this context
+            new_value: newStatus,
+            description: `Admin ${admin?.full_name || admin?.email || 'Unknown'} changed withdrawal status to ${newStatus}`,
+            created_at: new Date().toISOString()
+          });
+      } catch (logError) {
+        console.warn('⚠️ Failed to log admin action:', logError);
+        // Don't fail the main operation if logging fails
+      }
+
+      console.log('✅ WITHDRAWAL STATUS UPDATED:', { withdrawalId, newStatus });
+      
+      // Refresh financial stats to show updated data
+      await fetchFinancialStats();
+      
+      // Show success message
+      alert(`Withdrawal status updated to ${newStatus} successfully`);
+      
+    } catch (error) {
+      console.error('🛑 ERROR updating withdrawal status:', error);
+      alert(`Failed to update withdrawal status: ${error.message}`);
+    }
+  };
+
+  const changeAccountStatus = async (user, newStatus) => {
+    console.log('🆕 VERSION CHECK: UNSEAF-Portal-v4.0-RLS-FIXED');
+    console.log('🔔 BUTTON CLICKED: changeAccountStatus called with:', { userId: user.id, newStatus, currentStatus: user.account_status });
+    
+    // 🐛 DEBUG: Check current admin auth status
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    console.log('🔐 Current session:', session ? 'Authenticated' : 'Not authenticated');
+    console.log('🔐 Session user ID:', session?.user?.id);
+    console.log('🔐 Session error:', sessionError);
+    
+    const statusMessage = {
+      'approved': 'approve',
+      'active': 'approve', // Legacy support for 'active' status
+      'rejected': 'reject', 
+      'pending': 'set to pending'
+    };
+    
+    const successMessage = {
+      'approved': 'approved',
+      'active': 'approved', // Legacy support
+      'rejected': 'rejected',
+      'pending': 'set to pending'
+    };
+    
+    const confirmMessage = `Are you sure you want to ${statusMessage[newStatus]} the account for ${user.first_name} ${user.last_name}?`;
+    
+    console.log('🔔 SHOWING CONFIRMATION:', confirmMessage);
+    if (!confirm(confirmMessage)) {
+      console.log('🔔 USER CANCELLED');
+      return;
+    }
+    console.log('🔔 USER CONFIRMED - Proceeding with status change');
+    
+    try {
+      // 🐛 DEBUG: Log the exact update query being sent
+      console.log('📤 SENDING UPDATE:', {
+        table: 'users',
+        update_data: { account_status: newStatus },
+        where_condition: { id: user.id },
+        user_current_status: user.account_status
+      });
+      
+      const { data: updateResult, error } = await supabase
+        .from('users')
+        .update({ account_status: newStatus })
+        .eq('id', user.id)
+        .select(); // Return the updated record
+
+      // 🐛 DEBUG: Log the full response
+      console.log('📥 UPDATE RESPONSE:', {
+        success: !error,
+        data: updateResult,
+        error: error,
+        error_details: error ? {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint
+        } : null
+      });
+
+      if (error) {
+        // Enhanced error handling with specific RLS error detection
+        if (error.code === 'PGRST116' || error.message?.includes('policy')) {
+          console.error('🚫 RLS POLICY ERROR - Admin update blocked by Row Level Security!');
+          alert(`❌ Permission denied: Admin update policies not configured correctly.\n\nError: ${error.message}\n\nPlease run the FIX_ADMIN_UPDATE_POLICIES.sql script in Supabase.`);
+        } else {
+          console.error('💥 DATABASE ERROR:', error);
+          alert(`❌ Database error: ${error.message}\n\nCode: ${error.code || 'Unknown'}`);
+        }
+        throw error;
+      }
+      
+      // 🐛 DEBUG: Verify the update actually happened
+      console.log('✅ UPDATE SUCCESS - Records affected:', updateResult?.length || 0);
+      if (updateResult && updateResult.length > 0) {
+        console.log('📊 Updated record:', updateResult[0]);
+        console.log('🔄 Status changed from', user.account_status, 'to', updateResult[0].account_status);
+      }
+      
+      alert(`✅ Account ${successMessage[newStatus]} successfully`);
+      
+      // 🎯 SMART TAB NAVIGATION: Switch to the appropriate tab based on new status
+      const targetTab = {
+        'approved': 'approved',
+        'active': 'approved',    // Legacy support
+        'pending': 'pending',
+        'rejected': 'rejected'
+      }[newStatus];
+      
+      console.log(`🎯 SMART NAVIGATION: Switching to '${targetTab}' tab after status change to '${newStatus}'`);
+      
+      // ✅ FIX: Refresh all related data and switch to appropriate tab
+      await Promise.all([
+        fetchUsers(targetTab), // Switch to the appropriate tab for the new status
+        fetchStats(),
+        fetchPendingAccounts()
+      ]);
+      
+      console.log('🎉 Status change completed successfully!');
+    } catch (err) {
+      console.error('💥 Status change error:', err);
+      
+      // Enhanced error reporting
+      const errorDetails = {
+        message: err.message,
+        code: err.code,
+        details: err.details,
+        hint: err.hint,
+        user_id: user.id,
+        attempted_status: newStatus,
+        current_status: user.account_status
+      };
+      
+      console.error('🐛 FULL ERROR CONTEXT:', errorDetails);
+      
+      // User-friendly error message based on error type
+      let userMessage = `❌ Status change failed: ${err.message}`;
+      
+      if (err.code === 'PGRST116') {
+        userMessage = `❌ Permission denied: Admin policies need to be configured.\n\nPlease contact the system administrator to run the RLS policy fix.`;
+      }
+      
+      alert(userMessage);
+    }
+  };
+
+  const deleteUser = async (user) => {
+    const confirmMessage = `⚠️ PERMANENT DELETION WARNING ⚠️
+
+This will COMPLETELY DELETE:
+• User: ${user.first_name} ${user.last_name}
+• Grant: ${user.grant_number}
+• Account: ${user.account_number}
+• Everything related to this user
+
+This action CANNOT be undone!
+
+Type 'DELETE' to confirm:`;
+    
+    const confirmation = prompt(confirmMessage);
+    
+    if (confirmation !== 'DELETE') {
+      alert('Deletion cancelled.');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('users')
+        .delete()
+        .eq('id', user.id);
+
+      if (error) {
+        throw error;
+      }
+      
+      alert(`✅ User deleted successfully`);
+      
+      // 🔧 FIX: Refresh current tab instead of defaulting to 'all'
+      // Pass userStatusFilter to maintain the current tab view
+      await Promise.all([
+        fetchUsers(userStatusFilter),  // Stay on current tab (e.g., 'rejected')
+        fetchStats(),
+        fetchPendingAccounts()
+      ]);
+    } catch (err) {
+      console.error('Delete user error:', err);
+      alert(`❌ Deletion failed: ${err.message}`);
+    }
+  };
+
+  // KYC action handlers moved to KYCManagement component
+
+  const handleTicketAction = async (ticketId, action, data = {}) => {
+    // Confirm action
+    const confirmMessage = action === 'resolve' 
+      ? 'Are you sure you want to resolve this ticket?'
+      : 'Are you sure you want to close this ticket?';
+    
+    if (!confirm(confirmMessage)) return;
+
+    try {
+      // For now, just update the local state since support_tickets table may not exist
+      const updatedTickets = supportTickets.map(ticket => 
+        ticket.id === ticketId 
+          ? { ...ticket, status: action === 'resolve' ? 'resolved' : 'closed' }
+          : ticket
+      );
+      setSupportTickets(updatedTickets);
+      alert(`Ticket ${action}d successfully`);
+    } catch (err) {
+      console.error(`Error ${action}ing ticket:`, err);
+      alert(`Failed to ${action} ticket. Please try again.`);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-blue-50 flex items-center justify-center">
+        <div className="text-center max-w-md">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-blue-600 mb-4">Loading admin dashboard...</p>
+          {error && (
+            <div className="bg-red-50 p-4 rounded mb-4">
+              <p className="text-red-800 text-sm">{error}</p>
+            </div>
+          )}
+          <button 
+            onClick={() => {
+              setLoading(false);
+              setError('Loading cancelled by user');
+            }}
+            className="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700 text-sm"
+          >
+            Cancel Loading
+          </button>
+        </div>
+      </div>
+    );
+  }
+  
+  if (error && !admin) {
+    return (
+      <div className="min-h-screen bg-blue-50 flex items-center justify-center">
+        <div className="text-center max-w-md">
+          <div className="bg-red-50 p-6 rounded-lg">
+            <h2 className="text-xl font-bold text-red-800 mb-4">Dashboard Error</h2>
+            <p className="text-red-700 mb-4">{error}</p>
+            <div className="space-x-2">
+              <button 
+                onClick={() => window.location.reload()}
+                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+              >
+                Retry
+              </button>
+              <button 
+                onClick={() => navigate('/admin/login')}
+                className="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700"
+              >
+                Back to Login
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  {console.log('🚨 EMERGENCY: Admin Dashboard Render') || null}
+  {console.log('🚨 EMERGENCY: activeTab =', activeTab) || null}
+  {console.log('🚨 EMERGENCY: admin =', admin) || null}
+  {console.log('🚨 EMERGENCY: loading =', loading) || null}
+  
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="bg-blue-900 text-white p-4">
+        <div className="flex items-center justify-between max-w-6xl mx-auto">
+          <div className="flex items-center space-x-3">
+            <img 
+              src="/unseaflogo.PNG" 
+              alt="UNSEAF Logo" 
+              className="h-8 w-8"
+            />
+            <div>
+              <h1 className="text-xl font-bold">UNSEAF Admin Panel</h1>
+              <p className="text-blue-200 text-sm">Welcome, {admin?.username}</p>
+            </div>
+          </div>
+          <Button onClick={handleLogout} variant="outline" className="text-blue-900 border-white hover:bg-blue-50">
+            <LogOut className="h-4 w-4 mr-2" />
+            Logout
+          </Button>
+        </div>
+      </div>
+
+      <div className="max-w-6xl mx-auto p-6">
+        {error && (
+          <Alert className="mb-6 border-red-200 bg-red-50">
+            <AlertDescription className="text-red-800">{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {/* Navigation Tabs */}
+        <div className="flex space-x-4 mb-6 overflow-x-auto">
+          <Button
+            onClick={() => setActiveTab('overview')}
+            variant={activeTab === 'overview' ? 'default' : 'outline'}
+          >
+            Overview
+          </Button>
+          <Button
+            onClick={() => setActiveTab('approvals')}
+            variant={activeTab === 'approvals' ? 'default' : 'outline'}
+            className="relative"
+          >
+            Account Approvals
+            {stats?.pending_accounts > 0 && (
+              <Badge className="absolute -top-2 -right-2 bg-orange-600 text-white text-xs px-1 py-0">
+                {stats.pending_accounts}
+              </Badge>
+            )}
+          </Button>
+          <Button
+            onClick={() => setActiveTab('users')}
+            variant={activeTab === 'users' ? 'default' : 'outline'}
+          >
+            Users
+          </Button>
+          <Button
+            onClick={() => setActiveTab('kyc')}
+            variant={activeTab === 'kyc' ? 'default' : 'outline'}
+          >
+            KYC Management
+          </Button>
+          <Button
+            onClick={() => {
+              console.log('🚨 EMERGENCY: Financial Activity button clicked!');
+              console.log('🚨 EMERGENCY: Setting activeTab to financial');
+              setActiveTab('financial');
+              console.log('🚨 EMERGENCY: activeTab should now be financial');
+            }}
+            variant={activeTab === 'financial' ? 'default' : 'outline'}
+          >
+            Financial Activity
+          </Button>
+          <Button
+            onClick={() => setActiveTab('conflicts')}
+            variant={activeTab === 'conflicts' ? 'default' : 'outline'}
+            className="relative"
+          >
+            Grant Conflicts
+            {grantConflicts.length > 0 && (
+              <Badge className="absolute -top-2 -right-2 bg-red-600 text-white text-xs px-1 py-0">
+                {grantConflicts.length}
+              </Badge>
+            )}
+          </Button>
+        </div>
+
+        {/* Overview Tab */}
+        {activeTab === 'overview' && stats && (
+          <div className="space-y-6">
+            {/* User Statistics */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Users</CardTitle>
+                  <Users className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{stats.total_users}</div>
+                </CardContent>
+              </Card>
+              
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Active Users</CardTitle>
+                  <Activity className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-green-600">{stats.active_users}</div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Balance</CardTitle>
+                  <DollarSign className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatCurrency(stats.total_balance)}</div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Pending Accounts</CardTitle>
+                  <UserCheck className="h-4 w-4 text-orange-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-orange-600">{stats.pending_accounts || 0}</div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Pending KYC</CardTitle>
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-yellow-600">{stats.pending_kyc}</div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Financial Statistics */}
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Transactions</CardTitle>
+                  <Activity className="h-4 w-4 text-blue-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-blue-600">{financialStats.total_transactions}</div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {formatCurrency(financialStats.transaction_volume)} volume
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Transfers</CardTitle>
+                  <DollarSign className="h-4 w-4 text-green-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-green-600">{financialStats.total_transfers}</div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {formatCurrency(financialStats.transfer_volume)} volume
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Withdrawals</CardTitle>
+                  <DollarSign className="h-4 w-4 text-red-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-red-600">{financialStats.total_withdrawals}</div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {formatCurrency(financialStats.withdrawal_volume)} volume
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Volume</CardTitle>
+                  <DollarSign className="h-4 w-4 text-purple-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-purple-600">
+                    {formatCurrency(financialStats.transaction_volume + financialStats.transfer_volume + financialStats.withdrawal_volume)}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    All activities
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Avg Transaction</CardTitle>
+                  <Activity className="h-4 w-4 text-indigo-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-indigo-600">
+                    {formatCurrency(financialStats.total_transactions > 0 ? (financialStats.transaction_volume / financialStats.total_transactions) : 0)}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Per transaction
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Activity Rate</CardTitle>
+                  <Activity className="h-4 w-4 text-teal-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-teal-600">
+                    {stats.active_users > 0 ? ((financialStats.total_transactions + financialStats.total_transfers) / stats.active_users).toFixed(1) : '0.0'}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Acts per user
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Recent Transactions - Enhanced */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between">
+                  <span>Recent Transactions</span>
+                  <Badge variant="secondary">{stats.recent_transactions?.length || 0} transactions</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b bg-gray-50">
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Transaction ID</th>
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">User</th>
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Type</th>
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Description</th>
+                        <th className="text-right py-3 px-4 text-sm font-semibold text-gray-600">Amount</th>
+                        <th className="text-right py-3 px-4 text-sm font-semibold text-gray-600">Post Balance</th>
+                        <th className="text-right py-3 px-4 text-sm font-semibold text-gray-600">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {stats.recent_transactions?.map((tx, index) => (
+                        <tr key={index} className="border-b hover:bg-gray-50 transition-colors">
+                          <td className="py-3 px-4">
+                            <span className="font-mono text-sm text-blue-600">{tx.transaction_id}</span>
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="flex flex-col">
+                              <span className="font-medium text-sm">{tx.user_info?.full_name || 'Unknown User'}</span>
+                              <span className="text-xs text-gray-500">{tx.user_info?.email}</span>
+                              <span className="text-xs text-gray-400">#{tx.user_info?.account_number}</span>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <Badge 
+                              variant={tx.type === 'credit' ? 'default' : 'secondary'}
+                              className={tx.type === 'credit' ? 'bg-green-600' : 'bg-red-600'}
+                            >
+                              {tx.type.toUpperCase()}
+                            </Badge>
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className="text-sm text-gray-700">{tx.description}</span>
+                            {tx.reference && (
+                              <div className="text-xs text-gray-500 mt-1">Ref: {tx.reference}</div>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <span className={`font-bold text-lg ${tx.type === 'credit' ? 'text-green-600' : 'text-red-600'}`}>
+                              {formatTransactionAmount(tx.amount, tx.type)}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <span className="font-medium text-gray-900">
+                              {formatCurrency(tx.post_balance)}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <div className="text-sm text-gray-600">
+                              {new Date(tx.created_at).toLocaleDateString()}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {new Date(tx.created_at).toLocaleTimeString()}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {(!stats.recent_transactions || stats.recent_transactions.length === 0) && (
+                    <div className="text-center py-8 text-gray-500">
+                      <FileText className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                      <p>No recent transactions found</p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Account Approvals Tab */}
+        {activeTab === 'approvals' && (
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between">
+                  <span>Pending Account Approvals</span>
+                  <Badge variant="secondary">{pendingAccounts.length} pending</Badge>
+                </CardTitle>
+                <CardDescription>
+                  Review and approve newly registered user accounts
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {pendingAccounts.length > 0 ? (
+                  <>
+                    <div className="mb-4">
+                      <Button
+                        onClick={() => {
+                          const allUserIds = pendingAccounts.map(acc => acc.id);
+                          handleBulkApproval(allUserIds);
+                        }}
+                        className="bg-green-600 hover:bg-green-700"
+                      >
+                        <UserCheck className="h-4 w-4 mr-2" />
+                        Approve All ({pendingAccounts.length})
+                      </Button>
+                    </div>
+                    
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b bg-gray-50">
+                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">User Info</th>
+                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Contact</th>
+                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Registration Date</th>
+                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Account Number</th>
+                            <th className="text-center py-3 px-4 text-sm font-semibold text-gray-600">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {pendingAccounts.map((account) => (
+                            <tr key={account.id} className="border-b hover:bg-gray-50 transition-colors">
+                              <td className="py-4 px-4">
+                                <div className="flex flex-col">
+                                  <span className="font-medium text-lg">{account.full_name || `${account.first_name || ''} ${account.last_name || ''}`.trim()}</span>
+                                  <span className="font-mono text-sm text-blue-600">{account.grant_number}</span>
+                                  <div className="flex space-x-2 mt-1">
+                                    <Badge variant="outline" className="text-xs">
+                                      Status: {account.account_status}
+                                    </Badge>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="py-4 px-4">
+                                <div className="flex flex-col">
+                                  <span className="text-sm">{account.email}</span>
+                                  {account.mobile && (
+                                    <span className="text-sm text-gray-600">{account.mobile}</span>
+                                  )}
+                                  {account.country && (
+                                    <span className="text-xs text-gray-500">{account.country}</span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="py-4 px-4">
+                                <div className="text-sm text-gray-600">
+                                  {new Date(account.created_at).toLocaleDateString()}
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  {new Date(account.created_at).toLocaleTimeString()}
+                                </div>
+                              </td>
+                              <td className="py-4 px-4">
+                                <span className="font-mono text-sm bg-gray-100 px-2 py-1 rounded">
+                                  #{account.account_number}
+                                </span>
+                              </td>
+                              <td className="py-4 px-4">
+                                <div className="flex justify-center space-x-2">
+                                  <Button
+                                    size="sm"
+                                    onClick={() => handleAccountAction(account.id, 'approve')}
+                                    className="bg-green-600 hover:bg-green-700 text-white"
+                                  >
+                                    <UserCheck className="h-3 w-3 mr-1" />
+                                    Approve
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    onClick={() => handleAccountAction(account.id, 'reject')}
+                                  >
+                                    <UserX className="h-3 w-3 mr-1" />
+                                    Reject
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-center py-12">
+                    <UserCheck className="h-16 w-16 mx-auto mb-4 text-gray-300" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No Pending Approvals</h3>
+                    <p className="text-gray-500">All user accounts have been processed</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Users Tab */}
+        {activeTab === 'users' && (
+          <div className="space-y-6">
+            {/* Status Filter Tabs */}
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex space-x-2 mb-4">
+                  <Button
+                    variant={userStatusFilter === 'all' ? 'default' : 'outline'}
+                    onClick={() => fetchUsers('all')}
+                    size="sm"
+                  >
+                    All Users
+                  </Button>
+                  <Button
+                    variant={userStatusFilter === 'pending' ? 'default' : 'outline'}
+                    onClick={() => fetchUsers('pending')}
+                    size="sm"
+                    className={userStatusFilter === 'pending' ? '' : 'bg-yellow-600 hover:bg-yellow-700'}
+                  >
+                    Pending
+                  </Button>
+                  <Button
+                    variant={userStatusFilter === 'approved' ? 'default' : 'outline'}
+                    onClick={() => fetchUsers('approved')}
+                    size="sm"
+                    className={userStatusFilter === 'approved' ? '' : 'bg-green-600 hover:bg-green-700'}
+                  >
+                    Approved
+                  </Button>
+                  <Button
+                    variant={userStatusFilter === 'rejected' ? 'default' : 'outline'}
+                    onClick={() => fetchUsers('rejected')}
+                    size="sm"
+                    className={userStatusFilter === 'rejected' ? '' : 'bg-red-600 hover:bg-red-700'}
+                  >
+                    Rejected
+                  </Button>
+                </div>
+                
+                {/* Search */}
+                <div className="flex space-x-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Input
+                      placeholder="Search users by name, email, or grant number..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                  <Button onClick={() => fetchUsers(userStatusFilter)}>Search</Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Users List */}
+            <Card>
+              <CardHeader>
+                <CardTitle>
+                  Users ({users.length})
+                  {usersLoading && (
+                    <span className="ml-2 text-sm text-blue-600">Loading...</span>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {usersLoading ? (
+                  <div className="text-center py-12">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                    <p className="text-gray-500">Loading users...</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {users.length > 0 ? (
+                      users.map((user) => (
+                    <div key={user.id} className="flex items-center justify-between p-4 border rounded">
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-3">
+                          <div>
+                            <div className="font-medium">{user.full_name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Unknown User'}</div>
+                            <div className="font-mono text-sm text-blue-600">{user.grant_number}</div>
+                            <div className="text-sm text-gray-500">{user.email}</div>
+                            <div className="text-xs text-gray-400">Account: {user.account_number}</div>
+                          </div>
+                          <div className="flex space-x-2">
+                            <Badge variant={user.is_active ? "default" : "secondary"}>
+                              {user.is_active ? "Active" : "Inactive"}
+                            </Badge>
+                            <Badge variant={user.is_verified ? "default" : "secondary"}>
+                              {user.is_verified ? "Verified" : "Unverified"}
+                            </Badge>
+                            <Badge variant={user.account_status === 'approved' ? "default" : user.account_status === 'pending' ? "secondary" : "destructive"}>
+                              Account: {user.account_status}
+                            </Badge>
+                            <Badge variant={user.kyc_status === 'approved' ? "default" : user.kyc_status === 'pending' ? "secondary" : "destructive"}>
+                              KYC: {user.kyc_status}
+                            </Badge>
+                          </div>
+                        </div>
+                      </div>
+                        <div className="text-right">
+                        <div className="font-bold text-lg">${user.user_grants?.[0]?.current_balance?.toFixed(2) || '0.00'}</div>
+                        
+                        {/* Account Status Controls */}
+                        <div className="flex flex-wrap justify-end gap-1 mt-2 mb-2">
+                          {user.account_status !== 'approved' && user.account_status !== 'active' && (
+                            <Button
+                              size="sm"
+                              onClick={() => changeAccountStatus(user, 'approved')}
+                              className="bg-green-600 hover:bg-green-700 text-xs px-2 py-1"
+                              title="Approve Account"
+                            >
+                              ✓ Approve
+                            </Button>
+                          )}
+                          {user.account_status !== 'rejected' && (
+                            <Button
+                              size="sm"
+                              onClick={() => changeAccountStatus(user, 'rejected')}
+                              className="bg-red-600 hover:bg-red-700 text-xs px-2 py-1"
+                              title="Reject Account"
+                            >
+                              ✗ Reject
+                            </Button>
+                          )}
+                          {user.account_status !== 'pending' && (
+                            <Button
+                              size="sm"
+                              onClick={() => changeAccountStatus(user, 'pending')}
+                              className="bg-yellow-600 hover:bg-yellow-700 text-xs px-2 py-1"
+                              title="Set to Pending"
+                            >
+                              ⏳ Pending
+                            </Button>
+                          )}
+                        </div>
+                        
+                        {/* Fund & User Controls */}
+                        <div className="flex space-x-1 mt-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setSelectedUser(user);
+                              setFundAction('add');
+                            }}
+                            title="Add Funds"
+                          >
+                            <Plus className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setSelectedUser(user);
+                              setFundAction('deduct');
+                            }}
+                            title="Deduct Funds"
+                          >
+                            <Minus className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => toggleUserStatus(user.id, 'is_active', user.is_active)}
+                            title={user.is_active ? 'Deactivate User' : 'Activate User'}
+                          >
+                            {user.is_active ? <UserX className="h-3 w-3" /> : <UserCheck className="h-3 w-3" />}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => deleteUser(user)}
+                            title="Delete User Completely"
+                          >
+                            🗑️
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                      ))
+                    ) : (
+                      <div className="text-center py-12">
+                        <Users className="h-16 w-16 mx-auto mb-4 text-gray-300" />
+                        <h3 className="text-lg font-medium text-gray-900 mb-2">No users found</h3>
+                        <p className="text-gray-500">No users match the current filter: {userStatusFilter}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* KYC Management Tab */}
+        {activeTab === 'kyc' && (
+          <KYCManagement adminId={admin?.id} />
+        )}
+
+        {/* Financial Activity Tab */}
+        {activeTab === 'financial' && (
+          <div className="space-y-6">
+            {console.log('🚨 EMERGENCY DEBUG: Financial Activity Tab Loaded!') || null}
+            {console.log('🚨 EMERGENCY DEBUG: financialStats =', financialStats) || null}
+            {console.log('🚨 EMERGENCY DEBUG: recent_withdrawals =', financialStats?.recent_withdrawals) || null}
+            {console.log('🚨 EMERGENCY DEBUG: recent_withdrawals length =', financialStats?.recent_withdrawals?.length) || null}
+            {/* Financial Overview Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <Activity className="h-5 w-5 text-blue-500" />
+                    <span>Recent Transactions</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {financialStats.recent_transactions.slice(0, 5).map((tx, index) => (
+                      <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded">
+                        <div>
+                          <div className="font-medium text-sm">{tx.user_info?.full_name || 'Unknown User'}</div>
+                          <div className="text-xs text-gray-500">{tx.transaction_id}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className={`font-bold ${tx.type === 'credit' ? 'text-green-600' : 'text-red-600'}`}>
+                            {tx.type === 'credit' ? '+' : '-'}${parseFloat(tx.amount).toFixed(2)}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            {new Date(tx.created_at).toLocaleDateString()}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <DollarSign className="h-5 w-5 text-green-500" />
+                    <span>Recent Transfers</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {financialStats.recent_transfers.slice(0, 5).map((transfer, index) => (
+                      <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded">
+                        <div>
+                          <div className="font-medium text-sm">{transfer.user_info?.full_name || 'Unknown User'}</div>
+                          <div className="text-xs text-gray-500">To: {transfer.recipient_name}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-bold text-orange-600">
+                            ${parseFloat(transfer.amount).toFixed(2)}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            {new Date(transfer.created_at).toLocaleDateString()}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <DollarSign className="h-5 w-5 text-red-500" />
+                    <span>Recent Withdrawals</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {financialStats.recent_withdrawals.slice(0, 5).map((withdrawal, index) => (
+                      <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded">
+                        <div>
+                          <div className="font-medium text-sm">{withdrawal.user_info?.full_name || 'Unknown User'}</div>
+                          <div className="text-xs text-gray-500">{withdrawal.method || 'Bank'}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-bold text-red-600">
+                            ${parseFloat(withdrawal.amount).toFixed(2)}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            {new Date(withdrawal.created_at).toLocaleDateString()}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Detailed Financial Tables */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Transfers Table */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Transfer Activity</CardTitle>
+                  <CardDescription>Recent money transfers between accounts</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b bg-gray-50">
+                          <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">From</th>
+                          <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">To</th>
+                          <th className="text-right py-3 px-4 text-sm font-semibold text-gray-600">Amount</th>
+                          <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {financialStats.recent_transfers.map((transfer, index) => (
+                          <tr key={index} className="border-b hover:bg-gray-50 transition-colors">
+                            <td className="py-3 px-4">
+                              <div className="text-sm font-medium">{transfer.user_info?.full_name || 'Unknown'}</div>
+                              <div className="text-xs text-gray-500">#{transfer.user_info?.account_number}</div>
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="text-sm">{transfer.recipient_name}</div>
+                              <div className="text-xs text-gray-500">{transfer.recipient_bank || 'UNSEAF'}</div>
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <div className="font-bold text-orange-600">
+                                ${parseFloat(transfer.amount).toFixed(2)}
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                Fee: ${parseFloat(transfer.charge || 0).toFixed(2)}
+                              </div>
+                            </td>
+                            <td className="py-3 px-4">
+                              <Badge 
+                                className={
+                                  transfer.status === 'completed' ? 'bg-green-600' : 
+                                  transfer.status === 'pending' ? 'bg-yellow-600' : 'bg-red-600'
+                                }
+                              >
+                                {transfer.status || 'pending'}
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Withdrawals Table */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Withdrawal Activity</CardTitle>
+                  <CardDescription>Recent withdrawal requests and processing</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b bg-gray-50">
+                          <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">User</th>
+                          <th className="text-right py-3 px-4 text-sm font-semibold text-gray-600">Amount</th>
+                          <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Method</th>
+                          <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Status</th>
+                          <th className="text-center py-3 px-4 text-sm font-semibold text-gray-600">Admin Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {console.log('🔍 DEBUG: Rendering withdrawals:', financialStats.recent_withdrawals) || null}
+                        {financialStats.recent_withdrawals && financialStats.recent_withdrawals.length > 0 ? (
+                          financialStats.recent_withdrawals.map((withdrawal, index) => (
+                          <tr key={index} className="border-b hover:bg-gray-50 transition-colors">
+                            <td className="py-3 px-4">
+                              <div className="text-sm font-medium">{withdrawal.user_info?.full_name || 'Unknown'}</div>
+                              <div className="text-xs text-gray-500">#{withdrawal.user_info?.account_number}</div>
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <div className="font-bold text-red-600">
+                                ${parseFloat(withdrawal.amount).toFixed(2)}
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                Fee: ${parseFloat(withdrawal.fee || 0).toFixed(2)}
+                              </div>
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="text-sm">{withdrawal.method || 'Bank Transfer'}</div>
+                            </td>
+                            <td className="py-3 px-4">
+                              <Badge 
+                                className={
+                                  withdrawal.status === 'completed' ? 'bg-green-600' : 
+                                  withdrawal.status === 'processing' ? 'bg-blue-600' :
+                                  withdrawal.status === 'pending' ? 'bg-yellow-600' : 
+                                  withdrawal.status === 'failed' ? 'bg-red-600' : 'bg-gray-600'
+                                }
+                              >
+                                {withdrawal.status || 'pending'}
+                              </Badge>
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              {withdrawal.status !== 'completed' && withdrawal.status !== 'failed' ? (
+                                <div className="flex items-center justify-center space-x-2">
+                                  <Select
+                                    value={withdrawal.status || 'pending'}
+                                    onValueChange={(newStatus) => handleWithdrawalStatusUpdate(withdrawal.id, newStatus)}
+                                  >
+                                    <SelectTrigger className="w-32 h-8 text-xs">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="pending">Pending</SelectItem>
+                                      <SelectItem value="processing">Processing</SelectItem>
+                                      <SelectItem value="completed">Completed</SelectItem>
+                                      <SelectItem value="failed">Failed</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              ) : (
+                                <span className="text-xs text-gray-500">No actions</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))) : (
+                          <tr>
+                            <td colSpan="5" className="py-8 text-center">
+                              <div className="text-gray-500">
+                                🚨 <strong>DEBUG:</strong> No withdrawal data found<br/>
+                                recent_withdrawals length: {financialStats?.recent_withdrawals?.length || 'undefined'}<br/>
+                                financialStats exists: {financialStats ? 'YES' : 'NO'}<br/>
+                                <button 
+                                  onClick={() => console.log('FULL financialStats:', financialStats)}
+                                  className="mt-2 px-3 py-1 bg-blue-500 text-white rounded text-xs"
+                                >
+                                  Log Full Data to Console
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        )}
+
+        {/* Support Tickets Tab */}
+        {activeTab === 'tickets' && (
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center space-x-2">
+                      <MessageSquare className="h-5 w-5" />
+                      <span>Support Tickets Management</span>
+                    </CardTitle>
+                    <CardDescription>
+                      Manage user support requests and tickets
+                    </CardDescription>
+                  </div>
+                  <Badge variant="secondary">{supportTickets.length} tickets</Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {supportTickets.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b bg-gray-50">
+                          <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Ticket</th>
+                          <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">User</th>
+                          <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Subject</th>
+                          <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Status</th>
+                          <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Priority</th>
+                          <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Created</th>
+                          <th className="text-center py-3 px-4 text-sm font-semibold text-gray-600">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {supportTickets.map((ticket) => (
+                          <tr 
+                            key={ticket.id} 
+                            className="border-b hover:bg-gray-50 transition-colors cursor-pointer"
+                            onClick={() => setSelectedTicket(ticket)}
+                          >
+                            <td className="py-3 px-4">
+                              <div>
+                                <span className="font-mono text-sm text-blue-600">#{ticket.ticket_id || ticket.id}</span>
+                              </div>
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="flex flex-col">
+                                <span className="font-medium text-sm">{ticket.user_info?.full_name || ticket.full_name}</span>
+                                <span className="text-xs text-gray-500">{ticket.user_info?.email}</span>
+                              </div>
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="max-w-xs">
+                                <span className="text-sm font-medium line-clamp-2">{ticket.subject}</span>
+                              </div>
+                            </td>
+                            <td className="py-3 px-4">
+                              <Badge 
+                                className={
+                                  ticket.status === 'resolved' ? 'bg-green-600' : 
+                                  ticket.status === 'closed' ? 'bg-gray-600' :
+                                  ticket.status === 'in_progress' ? 'bg-yellow-600' :
+                                  'bg-blue-600'
+                                }
+                              >
+                                {ticket.status === 'open' && <Clock className="h-3 w-3 mr-1" />}
+                                {ticket.status === 'in_progress' && <AlertCircle className="h-3 w-3 mr-1" />}
+                                {ticket.status === 'resolved' && <CheckCircle className="h-3 w-3 mr-1" />}
+                                {ticket.status === 'closed' && <XCircle className="h-3 w-3 mr-1" />}
+                                <span className="capitalize">{ticket.status.replace('_', ' ')}</span>
+                              </Badge>
+                            </td>
+                            <td className="py-3 px-4">
+                              <Badge 
+                                className={
+                                  ticket.priority === 'urgent' ? 'bg-red-600' :
+                                  ticket.priority === 'high' ? 'bg-orange-600' :
+                                  ticket.priority === 'medium' ? 'bg-blue-600' :
+                                  'bg-gray-600'
+                                }
+                              >
+                                {ticket.priority}
+                              </Badge>
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="text-sm text-gray-600">
+                                {new Date(ticket.created_at).toLocaleDateString()}
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                {new Date(ticket.created_at).toLocaleTimeString()}
+                              </div>
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="flex justify-center space-x-1">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedTicket(ticket);
+                                  }}
+                                  title="View Details"
+                                >
+                                  <Eye className="h-3 w-3" />
+                                </Button>
+                                {(ticket.status === 'open' || ticket.status === 'in_progress') && (
+                                  <>
+                                    <Button
+                                      size="sm"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleTicketAction(ticket.id, 'resolve');
+                                      }}
+                                      className="bg-green-600 hover:bg-green-700"
+                                      title="Resolve Ticket"
+                                    >
+                                      <CheckCircle className="h-3 w-3" />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleTicketAction(ticket.id, 'close');
+                                      }}
+                                      className="border-red-600 text-red-600 hover:bg-red-50"
+                                      title="Close Ticket"
+                                    >
+                                      <XCircle className="h-3 w-3" />
+                                    </Button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="text-center py-12">
+                    <MessageSquare className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No support tickets</h3>
+                    <p className="text-gray-600">No support tickets to manage</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Grant Conflicts Tab */}
+        {activeTab === 'conflicts' && (
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center space-x-2">
+                      <AlertCircle className="h-5 w-5 text-red-600" />
+                      <span>Grant Number Conflicts</span>
+                    </CardTitle>
+                    <CardDescription>
+                      Manage accounts with duplicate grant numbers
+                    </CardDescription>
+                  </div>
+                  <Badge variant="destructive">{grantConflicts.length} conflicts</Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {grantConflicts.length > 0 ? (
+                  <div className="space-y-6">
+                    {grantConflicts.map((conflict, index) => (
+                      <div key={index} className="border rounded-lg p-6 bg-red-50">
+                        <div className="flex items-center space-x-3 mb-4">
+                          <AlertCircle className="h-6 w-6 text-red-600" />
+                          <div>
+                            <h3 className="text-lg font-semibold text-red-900">
+                              Grant Number: {conflict.grant_number}
+                            </h3>
+                            <p className="text-red-700">Found {conflict.count} duplicate accounts</p>
+                          </div>
+                        </div>
+                        
+                        <div className="grid gap-4 md:grid-cols-2">
+                          {conflict.users.map((user) => (
+                            <div key={user.id} className="bg-white border rounded-lg p-4">
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1">
+                                  <h4 className="font-semibold text-gray-900">
+                                    {user.full_name || `${user.first_name || ''} ${user.last_name || ''}`.trim()}
+                                  </h4>
+                                  <div className="text-sm text-gray-600 space-y-1">
+                                    <p>Email: {user.email}</p>
+                                    <p>Account: {user.account_number}</p>
+                                    <p>Created: {new Date(user.created_at).toLocaleDateString()}</p>
+                                  </div>
+                                  <div className="flex space-x-2 mt-2">
+                                    <Badge 
+                                      variant={user.account_status === 'approved' || user.account_status === 'active' ? 'default' : 
+                                               user.account_status === 'pending' ? 'secondary' : 'destructive'}
+                                    >
+                                      {user.account_status}
+                                    </Badge>
+                                    <Badge variant={user.is_active ? 'default' : 'secondary'}>
+                                      {user.is_active ? 'Active' : 'Inactive'}
+                                    </Badge>
+                                  </div>
+                                </div>
+                                
+                                <div className="flex flex-col space-y-2 ml-4">
+                                  {user.account_status !== 'approved' && user.account_status !== 'active' && (
+                                    <Button
+                                      size="sm"
+                                      onClick={() => changeAccountStatus(user, 'approved')}
+                                      className="bg-green-600 hover:bg-green-700 text-xs"
+                                    >
+                                      ✓ Approve
+                                    </Button>
+                                  )}
+                                  {user.account_status !== 'rejected' && (
+                                    <Button
+                                      size="sm"
+                                      onClick={() => changeAccountStatus(user, 'rejected')}
+                                      className="bg-red-600 hover:bg-red-700 text-xs"
+                                    >
+                                      ✗ Reject
+                                    </Button>
+                                  )}
+                                  <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    onClick={() => deleteUser(user)}
+                                    className="text-xs"
+                                    title="Delete Account (Frees Grant Number)"
+                                  >
+                                    🗑️ Delete
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        
+                        <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded">
+                          <h4 className="font-semibold text-yellow-900 mb-2">Resolution Options:</h4>
+                          <ul className="text-sm text-yellow-800 space-y-1">
+                            <li>• <strong>Approve one</strong> and reject the others</li>
+                            <li>• <strong>Delete unwanted accounts</strong> to free up the grant number</li>
+                            <li>• <strong>Set legitimate account to approved</strong> and others to rejected</li>
+                            <li>• Contact users directly to verify which registration is legitimate</li>
+                          </ul>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-12">
+                    <CheckCircle className="h-12 w-12 text-green-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No Grant Conflicts</h3>
+                    <p className="text-gray-600">All grant numbers are unique - no conflicts detected</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Fund Management Modal */}
+        {selectedUser && fundAction && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <Card className="w-full max-w-md">
+              <CardHeader>
+                <CardTitle>
+                  {fundAction === 'add' ? 'Add Funds' : 'Deduct Funds'} - {selectedUser.username}
+                </CardTitle>
+                <CardDescription>
+                  Current Balance: ${selectedUser.user_grants?.[0]?.current_balance?.toFixed(2) || '0.00'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <Label htmlFor="amount">Amount ($)</Label>
+                  <Input
+                    id="amount"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={fundAmount}
+                    onChange={(e) => setFundAmount(e.target.value)}
+                    placeholder="Enter amount"
+                  />
+                </div>
+                <div className="flex space-x-2">
+                  <Button onClick={handleFundUser} className="flex-1">
+                    {fundAction === 'add' ? 'Add Funds' : 'Deduct Funds'}
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    onClick={() => {
+                      setSelectedUser(null);
+                      setFundAmount('');
+                      setFundAction('');
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Support Ticket Detail Modal */}
+        {selectedTicket && (
+          <AdminSupportTicketDetail
+            ticket={selectedTicket}
+            onClose={() => setSelectedTicket(null)}
+            onUpdate={() => {
+              // Refresh ticket list in background but keep modal open for continued conversation
+              fetchSupportTickets();
+              // Don't close modal here - only close on explicit user action (X button)
+            }}
+          />
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default AdminDashboard;

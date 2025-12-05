@@ -1,0 +1,383 @@
+import { createClient } from '@supabase/supabase-js'
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://qghsyyyompjuxjtbqiuk.supabase.co'
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFnaHN5eXlvbXBqdXhqdGJxaXVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc1ODg1MDMsImV4cCI6MjA3MzE2NDUwM30.NFI5KLZrnWq1yTN4R8nGV5dSKDy7DmvedAFmjNdbEGY'
+
+// Create Supabase client with proper session persistence configuration
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    // Store session in localStorage for persistence across page refreshes
+    storage: window.localStorage,
+    storageKey: 'unseaf-auth-token',
+    // Automatically refresh tokens when they expire
+    autoRefreshToken: true,
+    // Persist session across browser tabs
+    persistSession: true,
+    // Detect session changes from other tabs
+    detectSessionInUrl: true,
+  },
+})
+
+// Helper function to convert grant number to email format for Supabase Auth
+// Converts UNSEAF-2025/GR-0001 to unseaf-2025-gr-0001@internal.unseaf.org
+export const grantNumberToEmail = (grantNumber) => {
+  // Convert to lowercase and replace / with -
+  const emailLocal = grantNumber.toLowerCase().replace('/', '-')
+  return `${emailLocal}@internal.unseaf.org`
+}
+
+// Helper function to convert email back to grant number for display
+// Converts unseaf-2025-gr-0001@internal.unseaf.org back to UNSEAF-2025/GR-0001
+export const emailToGrantNumber = (email) => {
+  const local = email.replace('@internal.unseaf.org', '')
+  // Convert back to uppercase and replace the second hyphen with /
+  const parts = local.split('-')
+  if (parts.length >= 3) {
+    // Rejoin as UNSEAF-2025/GR-0001
+    return `${parts[0].toUpperCase()}-${parts[1]}/${parts[2].toUpperCase()}-${parts[3]}`
+  }
+  return local.toUpperCase()
+}
+
+// Authentication helpers
+export const auth = {
+  // Sign in with email + password (updated to use real emails)
+  signIn: async (email, password) => {
+    console.log('🧪 TEST: auth.signIn - Starting login for email:', email);
+    
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password
+    });
+    
+    if (error) {
+      console.error('🧪 TEST: auth.signIn - Auth error:', error);
+      throw error;
+    }
+    
+    console.log('🧪 TEST: auth.signIn - Auth successful, user ID:', data.user?.id);
+    
+    // Get user profile data
+    if (data.user) {
+      console.log('🧪 TEST: auth.signIn - Fetching profile for user ID:', data.user.id);
+      
+      // First, check how many records exist for this user ID
+      const { data: allProfiles, error: countError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', data.user.id);
+      
+      console.log('🧪 TEST: auth.signIn - Found', allProfiles?.length, 'profile(s) for user ID:', data.user.id);
+      
+      if (countError) {
+        console.error('🧪 TEST: auth.signIn - Error checking profiles:', countError);
+        // Continue anyway, might be permissions issue
+      }
+      
+      if (allProfiles?.length > 1) {
+        console.warn('🧪 TEST: auth.signIn - DUPLICATE PROFILES DETECTED:', allProfiles);
+      }
+      
+      // If no profiles found, don't use .single() - just return with null profile
+      if (!allProfiles || allProfiles.length === 0) {
+        console.log('🧪 TEST: auth.signIn - No profile found, proceeding with null profile');
+        return { user: data.user, profile: null };
+      }
+      
+      // If we have exactly one profile, use it
+      if (allProfiles.length === 1) {
+        console.log('🧪 TEST: auth.signIn - Using found profile:', allProfiles[0]);
+        
+        // CHECK ACCOUNT STATUS - CRITICAL SECURITY CHECK
+        const profile = allProfiles[0];
+        const accountStatus = profile.account_status;
+        
+        console.log('🔐 SECURITY: Checking account status:', accountStatus);
+        
+        // Accept both 'approved' and 'active' as valid login statuses
+        // Database constraint uses 'approved' as the main status
+        const validStatuses = ['approved', 'active'];
+        
+        if (!validStatuses.includes(accountStatus)) {
+          let errorMessage;
+          
+          switch (accountStatus) {
+            case 'pending':
+              errorMessage = 'Your account is pending approval. Please wait for admin approval before logging in.';
+              break;
+            case 'rejected':
+              errorMessage = 'Your account has been rejected or suspended. Please contact support for assistance.';
+              break;
+            default:
+              errorMessage = `Account status '${accountStatus}' is not active. Please contact support.`;
+          }
+          
+          console.log('🚫 SECURITY: Login blocked - Status:', accountStatus);
+          
+          // Throw error to prevent login
+          const statusError = new Error(errorMessage);
+          statusError.code = 'ACCOUNT_STATUS_BLOCKED';
+          statusError.accountStatus = accountStatus;
+          throw statusError;
+        }
+        
+        console.log('✅ SECURITY: Account status check passed - User can login');
+        return { user: data.user, profile: allProfiles[0] };
+      }
+      
+      // If multiple profiles, use the first one but warn
+      console.warn('🧪 TEST: auth.signIn - Multiple profiles found, using first one');
+      const profile = allProfiles[0];
+      const accountStatus = profile.account_status;
+      
+      console.log('🔐 SECURITY: Checking account status (multiple profiles):', accountStatus);
+      
+      // Accept both 'approved' and 'active' as valid login statuses
+      const validStatuses = ['approved', 'active'];
+      
+      if (!validStatuses.includes(accountStatus)) {
+        let errorMessage;
+        
+        switch (accountStatus) {
+          case 'pending':
+            errorMessage = 'Your account is pending approval. Please wait for admin approval before logging in.';
+            break;
+          case 'rejected':
+            errorMessage = 'Your account has been rejected or suspended. Please contact support for assistance.';
+            break;
+          default:
+            errorMessage = `Account status '${accountStatus}' is not active. Please contact support.`;
+        }
+        
+        console.log('🚫 SECURITY: Login blocked - Status:', accountStatus);
+        
+        const statusError = new Error(errorMessage);
+        statusError.code = 'ACCOUNT_STATUS_BLOCKED';
+        statusError.accountStatus = accountStatus;
+        throw statusError;
+      }
+      
+      console.log('✅ SECURITY: Account status check passed - User can login');
+      return { user: data.user, profile: allProfiles[0] };
+    }
+    
+    console.log('🧪 TEST: auth.signIn - No user data, returning null profile');
+    return { user: data.user, profile: null };
+  },
+
+  // Sign out
+  signOut: async () => {
+    const { error } = await supabase.auth.signOut()
+    if (error) throw error
+  },
+
+  // Get current session
+  getSession: async () => {
+    const { data: { session }, error } = await supabase.auth.getSession()
+    if (error) throw error
+    return session
+  },
+
+  // Get current user profile with real-time balance from user_grants
+  getCurrentUser: async () => {
+    const { data: { user }, error } = await supabase.auth.getUser()
+    if (error) throw error
+    
+    if (user) {
+      const { data: profiles, error: profileError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', user.id)
+      
+      if (profileError) {
+        console.warn('Error fetching profile:', profileError)
+        return null
+      }
+      
+      if (profiles && profiles.length > 0) {
+        const profile = profiles[0];
+        
+        // 🔧 SESSION FIX: Fetch real-time balance from user_grants table
+        // Removed .single() to prevent session logout when grant record is missing/duplicate
+        try {
+          const { data: grants, error: grantError } = await supabase
+            .from('user_grants')
+            .select('current_balance')
+            .eq('user_id', user.id);
+          
+          if (!grantError && grants && grants.length > 0) {
+            // Override balance with real current_balance from user_grants
+            profile.balance = grants[0].current_balance;
+            console.log('✅ Balance fetched from user_grants:', grants[0].current_balance);
+          } else {
+            // Fallback: Keep existing balance from users table
+            console.warn('⚠️ Could not fetch grant balance, using profile balance:', profile.balance);
+          }
+        } catch (balanceError) {
+          // 🔧 SESSION FIX: Don't fail authentication if balance fetch fails
+          console.error('⚠️ Balance fetch error (non-fatal):', balanceError.message);
+          // User stays logged in with balance from users table
+        }
+        
+        return profile;
+      }
+      
+      return null;
+    }
+    
+    return null
+  },
+
+  // Register new user - HYBRID APPROACH: Supabase + Auto-Confirm
+  register: async (userData) => {
+    const email = userData.email;
+    
+    console.log('🔄 HYBRID: Starting hybrid registration with email:', email);
+    
+    try {
+      const normalizedEmail = email.toLowerCase().trim();
+      console.log('📧 HYBRID: Using normalized email:', normalizedEmail);
+      
+      // STEP 1: Use normal Supabase Auth registration (creates proper auth user)
+      console.log('🔄 HYBRID: Step 1 - Creating auth user with Supabase...');
+      
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: normalizedEmail,
+        password: userData.password
+      });
+      
+      if (authError) {
+        console.error('❌ HYBRID: Supabase auth registration failed:', authError);
+        throw authError;
+      }
+      
+      if (!authData.user) {
+        throw new Error('Registration failed - no user data returned');
+      }
+      
+      console.log('✅ HYBRID: Step 1 complete - Auth user created:', authData.user.id);
+      
+      // STEP 2: Auto-confirm the email (eliminates manual intervention)
+      console.log('🔄 HYBRID: Step 2 - Auto-confirming email...');
+      
+      const { data: confirmResult, error: confirmError } = await supabase
+        .rpc('auto_confirm_user_email', { user_id: authData.user.id });
+      
+      if (confirmError) {
+        console.error('❌ HYBRID: Email confirmation RPC failed:', confirmError);
+        console.error('❌ HYBRID: This will likely cause profile creation to fail');
+        // Continue anyway - but expect profile creation to fail
+      }
+      
+      if (confirmResult?.success) {
+        console.log('✅ HYBRID: Step 2 complete - Email auto-confirmed:', confirmResult);
+      } else {
+        console.error('❌ HYBRID: Email confirmation FAILED. Details:', confirmResult);
+        console.error('❌ HYBRID: This means the auth user is unconfirmed and profile creation will fail');
+        // Still continue to see the exact error from profile creation
+      }
+      
+      // STEP 3: Generate account number
+      console.log('🔄 HYBRID: Step 3 - Generating account number...');
+      
+      const { data: accountNum, error: accountError } = await supabase
+        .rpc('generate_account_number', { grant_num: userData.grant_number });
+      
+      if (accountError) {
+        console.error('❌ HYBRID: Account number generation failed:', accountError);
+        throw accountError;
+      }
+      
+      console.log('✅ HYBRID: Step 3 complete - Account number generated:', accountNum);
+      
+      // STEP 4: Create user profile
+      console.log('🔄 HYBRID: Step 4 - Creating user profile...');
+      
+      // Set up session context for profile creation
+      if (authData.session) {
+        await supabase.auth.setSession(authData.session);
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      // Use the new profile creation function to avoid foreign key issues
+      const { data: profileResult, error: profileError } = await supabase
+        .rpc('create_user_profile', {
+          p_user_id: authData.user.id,
+          p_email: normalizedEmail,
+          p_grant_number: userData.grant_number,
+          p_first_name: userData.first_name,
+          p_last_name: userData.last_name,
+          p_mobile: userData.mobile || null,
+          p_country: userData.country || null,
+          p_account_number: accountNum
+        });
+      
+      if (profileError) {
+        console.error('❌ HYBRID: Profile creation function failed:', profileError);
+        throw profileError;
+      }
+      
+      if (!profileResult?.success) {
+        console.error('❌ HYBRID: Profile creation returned failure:', profileResult);
+        throw new Error(profileResult?.error || 'Profile creation failed');
+      }
+      
+      // Fetch the created profile for return
+      const { data: profile, error: fetchError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', authData.user.id)
+        .single();
+      
+      if (fetchError || !profile) {
+        console.warn('⚠️ HYBRID: Could not fetch profile, but creation was successful');
+        // Create a mock profile object if fetch fails
+        const mockProfile = {
+          id: authData.user.id,
+          email: normalizedEmail,
+          grant_number: userData.grant_number,
+          first_name: userData.first_name,
+          last_name: userData.last_name,
+          mobile: userData.mobile || null,
+          country: userData.country || null,
+          account_number: accountNum,
+          balance: 0.00,
+          account_status: 'pending',
+          kyc_status: 'pending'
+        };
+        return { 
+          user: authData.user, 
+          profile: mockProfile, 
+          hybridApproach: true,
+          message: 'Account created using hybrid approach - should work immediately after approval'
+        };
+      }
+      
+      console.log('✅ HYBRID: Step 4 complete - Profile created successfully!');
+      console.log('🎉 HYBRID: Registration completed successfully!');
+      
+      return { 
+        user: authData.user, 
+        profile, 
+        hybridApproach: true,
+        autoConfirmed: true,
+        message: 'Account created using hybrid approach - should work immediately after approval'
+      };
+      
+    } catch (error) {
+      console.error('💥 HYBRID: Registration failed:', {
+        error_message: error.message,
+        error_code: error.code,
+        user_data: {
+          email: userData.email,
+          grant_number: userData.grant_number,
+          first_name: userData.first_name,
+          last_name: userData.last_name
+        }
+      });
+      throw error;
+    }
+  }
+}
+
+export default supabase

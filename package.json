@@ -1,0 +1,12 @@
+{
+  "name": "unseaf-portal",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "apply:withdrawal-fix": "node scripts/apply_withdrawal_fix.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.74.0",
+    "pg": "^8.16.3"
+  }
+}
